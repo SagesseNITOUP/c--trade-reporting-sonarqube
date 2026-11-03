@@ -1,0 +1,18 @@
+FROM sonarsource/sonar-scanner-cli:12.0.0.3214_8.0.1 AS scanner
+FROM jenkins/jenkins:2.580.2-jdk21
+
+USER root
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+       build-essential cmake ninja-build libboost-test-dev gcovr \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=scanner /opt/sonar-scanner /opt/sonar-scanner
+ENV PATH="/opt/sonar-scanner/bin:${PATH}" \
+    SONAR_USER_HOME=/var/jenkins_home/.sonar \
+    JAVA_OPTS="-Djenkins.install.runSetupWizard=false"
+
+COPY --chown=jenkins:jenkins jenkins/plugins.txt /usr/share/jenkins/ref/plugins.txt
+USER jenkins
+RUN jenkins-plugin-cli --plugin-file /usr/share/jenkins/ref/plugins.txt
+COPY --chown=jenkins:jenkins jenkins/init.groovy.d/ /usr/share/jenkins/ref/init.groovy.d/

@@ -1,0 +1,67 @@
+services:
+  sonarqube:
+    # Paire verifiee par les mainteneurs du plugin CXX 2.3.1 (26.1 + Java 21).
+    image: sonarqube:26.1.0.118079-community
+    ports:
+      - "127.0.0.1:9000:9000"
+    environment:
+      # Usage pedagogique local seulement, ne pas reproduire tel quel en production.
+      SONAR_ES_BOOTSTRAP_CHECKS_DISABLE: "true"
+    volumes:
+      - sonarqube_data:/opt/sonarqube/data
+      - sonarqube_logs:/opt/sonarqube/logs
+      - ./sonar-extensions/plugins:/opt/sonarqube/extensions/plugins
+
+  coverage:
+    profiles: [tools]
+    build:
+      context: .
+      dockerfile: Dockerfile.tools
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+    command: [bash, scripts/build-test-coverage.sh]
+
+  scanner:
+    profiles: [tools]
+    # Cette version embarque Java 21, requis par sonar-cxx 2.3.1.
+    image: sonarsource/sonar-scanner-cli:12.0.0.3214_8.0.1
+    working_dir: /usr/src
+    environment:
+      SONAR_HOST_URL: http://sonarqube:9000
+      SONAR_TOKEN: ${SONAR_TOKEN:-}
+    volumes:
+      - .:/usr/src
+    command: ["-Dsonar.host.url=http://sonarqube:9000", "-Dsonar.qualitygate.wait=true"]
+
+  jenkins:
+    profiles: [ci]
+    build:
+      context: .
+      dockerfile: Dockerfile.jenkins
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - jenkins_home:/var/jenkins_home
+      # Sources seules : aucun identifiant .local ni ancien rapport dans le job.
+      - ./src:/opt/project/src:ro
+      - ./include:/opt/project/include:ro
+      - ./tests:/opt/project/tests:ro
+      - ./scripts:/opt/project/scripts:ro
+      - ./CMakeLists.txt:/opt/project/CMakeLists.txt:ro
+      - ./sonar-project.properties:/opt/project/sonar-project.properties:ro
+      - ./Jenkinsfile:/opt/project/Jenkinsfile:ro
+    secrets:
+      - jenkins_admin_password
+      - jenkins_sonar_token
+
+volumes:
+  sonarqube_data:
+  sonarqube_logs:
+  jenkins_home:
+
+secrets:
+  jenkins_admin_password:
+    file: ./.local/jenkins-admin-password
+  jenkins_sonar_token:
+    file: ./.local/jenkins-sonar-token

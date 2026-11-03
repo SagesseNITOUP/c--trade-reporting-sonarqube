@@ -1,0 +1,10 @@
+FROM ubuntu:24.04
+
+# GCC et gcov proviennent de la meme distribution. Aucun outil payant.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+       build-essential cmake ninja-build libboost-test-dev gcovr ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /workspace
+CMD ["bash", "scripts/build-test-coverage.sh"]

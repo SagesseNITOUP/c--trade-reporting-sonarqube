@@ -1,0 +1,92 @@
+pipeline {
+    agent { label 'linux-coverage' }
+
+    options {
+        skipDefaultCheckout(true)
+        disableConcurrentBuilds()
+        timeout(time: 20, unit: 'MINUTES')
+        buildDiscarder(logRotator(numToKeepStr: '20', artifactNumToKeepStr: '10'))
+    }
+
+    parameters {
+        booleanParam(
+            name: 'USE_LOCAL_SOURCE',
+            defaultValue: true,
+            description: 'Copier les sources locales depuis /opt/project. Desactiver pour un job Pipeline from SCM.'
+        )
+        string(
+            name: 'SONAR_HOST_URL',
+            defaultValue: 'http://sonarqube:9000',
+            description: 'URL SonarQube accessible depuis cet agent Jenkins.'
+        )
+    }
+
+    // Pour Pipeline from SCM : lancer un build si Git a change, au plus toutes les 5 minutes.
+    // Un job utilisant seulement la copie locale ne possede pas de SCM a interroger.
+    triggers {
+        pollSCM('H/5 * * * *')
+    }
+
+    stages {
+        stage('Sources') {
+            steps {
+                deleteDir()
+                script {
+                    if (params.USE_LOCAL_SOURCE) {
+                        sh '''
+                            set -eu
+                            test -r /opt/project/CMakeLists.txt
+                            cp -R /opt/project/include /opt/project/src /opt/project/tests /opt/project/scripts .
+                            cp /opt/project/CMakeLists.txt /opt/project/sonar-project.properties /opt/project/Jenkinsfile .
+                        '''
+                    } else {
+                        checkout scm
+                    }
+                }
+            }
+        }
+
+        stage('Verifier les outils') {
+            steps {
+                sh 'bash scripts/verify-environment.sh'
+                sh 'sonar-scanner --version'
+            }
+        }
+
+        stage('Compilation, tests et couverture') {
+            steps {
+                sh 'bash scripts/build-test-coverage.sh'
+            }
+        }
+
+        stage('SonarQube et Quality Gate') {
+            environment {
+                SONAR_HOST_URL = "${params.SONAR_HOST_URL}"
+            }
+            steps {
+                withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
+                    sh '''
+                        set +x
+                        set -eu
+                        test -s reports/coverage-sonarqube.xml
+                        sonar-scanner \
+                          -Dsonar.host.url="$SONAR_HOST_URL" \
+                          -Dsonar.qualitygate.wait=true \
+                          -Dsonar.qualitygate.timeout=300
+                    '''
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            junit testResults: 'reports/tests-junit.xml', allowEmptyResults: true
+            archiveArtifacts artifacts: 'reports/**,build/coverage/Testing/Temporary/LastTest.log',
+                allowEmptyArchive: true, fingerprint: true
+        }
+        success {
+            echo 'Tests, couverture et Quality Gate valides. Les rapports sont disponibles dans les artefacts du build.'
+        }
+    }
+}

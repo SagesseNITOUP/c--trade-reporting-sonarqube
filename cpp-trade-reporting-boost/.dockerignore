@@ -1,0 +1,6 @@
+build
+reports
+.scannerwork
+.local
+sonar-extensions/plugins/*.jar
+.git
